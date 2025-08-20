@@ -2,10 +2,43 @@ name: Build Godot 4.4.1-stable Export Templates
 
 on: [push, pull_request, workflow_dispatch]
 
-env:
-  GODOT_VERSION: "4.4.1-stable"
-
 jobs:
+  build-macos:
+    name: Build macOS Templates
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        ref: 4.4.1-stable
+
+    - name: Install macOS dependencies
+      run: |
+        brew update
+        brew install scons pkg-config yasm molten-vk
+        echo "VULKAN_SDK=$(brew --prefix molten-vk)" >> $GITHUB_ENV
+        echo "PATH=$VULKAN_SDK/bin:$PATH" >> $GITHUB_ENV
+
+    - name: Build macOS templates
+      run: |
+        scons platform=macos target=template_release vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
+        scons platform=macos target=template_debug vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
+
+    - name: Package macOS templates
+      run: |
+        mkdir -p bin/templates
+        cp bin/godot.macos.template_release bin/templates/macos_template_release
+        cp bin/godot.macos.template_debug bin/templates/macos_template_debug
+        tar -czf macos-export-templates.tgz bin/templates/
+
+    - name: Upload macOS templates artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-export-templates
+        path: macos-export-templates.tgz
+
   build-windows:
     name: Build Windows Templates
     runs-on: windows-latest
@@ -15,22 +48,26 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: recursive
-        ref: ${{ env.GODOT_VERSION }}  # 确保检出正确的版本
+        ref: 4.4.1-stable
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install SCons
+      run: |
+        pip install scons
 
     - name: Setup MSVC environment
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
 
-    - name: Install dependencies
+    - name: Build Windows templates
       run: |
-        choco install scons -y
-        choco install python -y
-
-    - name: Build Windows templates (64-bit)
-      run: |
-        python -m SCons platform=windows target=template_release bits=64 -j 4
-        python -m SCons platform=windows target=template_debug bits=64 -j 4
+        scons platform=windows target=template_release bits=64 -j 4
+        scons platform=windows target=template_debug bits=64 -j 4
 
     - name: Package Windows templates
       run: |
@@ -45,88 +82,38 @@ jobs:
         name: windows-export-templates
         path: windows-export-templates.zip
 
-  build-macos:
-    name: Build macOS Templates
-    runs-on: macos-latest
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        ref: ${{ env.GODOT_VERSION }}  # 确保检出正确的版本
-
-    - name: Install dependencies
-      run: |
-        brew update
-        brew install scons pkg-config yasm
-        brew install molten-vk
-
-    - name: Set up Vulkan SDK environment
-      run: |
-        echo "VULKAN_SDK=$(brew --prefix molten-vk)" >> $GITHUB_ENV
-        echo "$VULKAN_SDK/bin" >> $GITHUB_PATH
-
-    - name: Build macOS templates (x86_64)
-      run: |
-        scons platform=macos target=template_release arch=x86_64 vulkan_sdk="$VULKAN_SDK" -j4
-        scons platform=macos target=template_debug arch=x86_64 vulkan_sdk="$VULKAN_SDK" -j4
-
-    - name: Build macOS templates (ARM64)
-      run: |
-        scons platform=macos target=template_release arch=arm64 vulkan_sdk="$VULKAN_SDK" -j4
-        scons platform=macos target=template_debug arch=arm64 vulkan_sdk="$VULKAN_SDK" -j4
-
-    - name: Package macOS templates
-      run: |
-        mkdir -p bin/templates
-        # x86_64 版本
-        cp bin/godot.macos.template_release.x86_64 bin/templates/macos_template_release_x86_64
-        cp bin/godot.macos.template_debug.x86_64 bin/templates/macos_template_debug_x86_64
-        # ARM64 版本
-        cp bin/godot.macos.template_release.arm64 bin/templates/macos_template_release_arm64
-        cp bin/godot.macos.template_debug.arm64 bin/templates/macos_template_debug_arm64
-        tar -czf macos-export-templates.tgz bin/templates/
-
-    - name: Upload macOS templates artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-export-templates
-        path: macos-export-templates.tgz
-
   create-release:
     name: Create Release
-    needs: [build-windows, build-macos]
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: success() && startsWith(github.ref, 'refs/tags/')
     
     steps:
-    - name: Download Windows templates artifact
+    - name: Download macOS templates
+      uses: actions/download-artifact@v4
+      with:
+        name: macos-export-templates
+        path: artifacts/
+
+    - name: Download Windows templates
       uses: actions/download-artifact@v4
       with:
         name: windows-export-templates
-        path: artifacts/windows
-
-    - name: Download macOS templates artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: macos-export-templates
-        path: artifacts/macos
+        path: artifacts/
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          artifacts/windows/windows-export-templates.zip
-          artifacts/macos/macos-export-templates.tgz
-        tag_name: ${{ github.ref }}
-        name: Godot ${{ env.GODOT_VERSION }} Export Templates
+          artifacts/macos-export-templates.tgz
+          artifacts/windows-export-templates.zip
+        tag_name: ${{ github.ref_name }}
+        name: Godot ${{ github.ref_name }} Export Templates
         body: |
-          Export templates for Godot Engine ${{ env.GODOT_VERSION }}
+          Export templates for Godot Engine ${{ github.ref_name }}
           
           Includes:
-          - Windows 64-bit (Release and Debug)
-          - macOS x86_64 (Release and Debug)
-          - macOS ARM64 (Release and Debug)
+          - macOS templates (Release and Debug)
+          - Windows 64-bit templates (Release and Debug)
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
