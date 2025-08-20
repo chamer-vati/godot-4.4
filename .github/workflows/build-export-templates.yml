@@ -1,9 +1,8 @@
 name: Build Godot 4.4.1-stable Export Templates
 
 on: [push, pull_request, workflow_dispatch]
-
 jobs:
-    build-macos:
+  build-macos:
     name: Build macOS Templates
     runs-on: macos-latest
     
@@ -51,13 +50,18 @@ jobs:
           filename=$(basename "$file")
           # 根据架构重命名文件
           if [[ $filename == *".arm64" ]]; then
-            newname="${filename//.template_/.template_}" # 保持原样或根据需要重命名
+            newname="${filename//.template_release.arm64/_release_arm64}"
+            newname="${newname//.template_debug.arm64/_debug_arm64}"
             cp "$file" "bin/templates/${newname}"
           elif [[ $filename == *".x86_64" ]]; then
-            newname="${filename//.template_/.template_}" # 保持原样或根据需要重命名
+            newname="${filename//.template_release.x86_64/_release_x86_64}"
+            newname="${newname//.template_debug.x86_64/_debug_x86_64}"
             cp "$file" "bin/templates/${newname}"
           else
-            cp "$file" "bin/templates/${filename}"
+            # 处理没有明确架构标识的文件
+            newname="${filename//.template_release/_release}"
+            newname="${newname//.template_debug/_debug}"
+            cp "$file" "bin/templates/${newname}"
           fi
         done
         
@@ -73,81 +77,30 @@ jobs:
         name: macos-export-templates
         path: macos-export-templates.tgz
 
-#   build-windows:
-#     name: Build Windows Templates
-#     runs-on: windows-latest
-    
-#     steps:
-#     - name: Checkout repository
-#       uses: actions/checkout@v4
-#       with:
-#         submodules: recursive
-#         ref: 4.4.1-stable
-
-#     - name: Setup Python
-#       uses: actions/setup-python@v4
-#       with:
-#         python-version: '3.9'
-        
-#     - name: Install SCons
-#       run: |
-#         pip install scons
-
-#     - name: Setup MSVC environment
-#       uses: ilammy/msvc-dev-cmd@v1
-#       with:
-#         arch: x64
-
-#     - name: Build Windows templates
-#       run: |
-#         scons platform=windows target=template_release bits=64 -j 4
-#         scons platform=windows target=template_debug bits=64 -j 4
-
-#     - name: Package Windows templates
-#       run: |
-#         New-Item -ItemType Directory -Force -Path bin/templates
-#         Copy-Item bin/godot.windows.template_release.64.exe bin/templates/windows_64_release.exe
-#         Copy-Item bin/godot.windows.template_debug.64.exe bin/templates/windows_64_debug.exe
-#         Compress-Archive -Path bin/templates/* -DestinationPath windows-export-templates.zip
-
-#     - name: Upload Windows templates artifact
-#       uses: actions/upload-artifact@v4
-#       with:
-#         name: windows-export-templates
-#         path: windows-export-templates.zip
-
   create-release:
     name: Create Release
-    needs: [build-macos] #, build-windows]
+    needs: build-macos
     runs-on: ubuntu-latest
     if: success() && startsWith(github.ref, 'refs/tags/')
     
     steps:
-    - name: Download macOS templates
+    - name: Download macOS templates artifact
       uses: actions/download-artifact@v4
       with:
         name: macos-export-templates
         path: artifacts/
 
-    # - name: Download Windows templates
-    #   uses: actions/download-artifact@v4
-    #   with:
-    #     name: windows-export-templates
-    #     path: artifacts/
-
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          artifacts/macos-export-templates.tgz
-        #   artifacts/windows-export-templates.zip
+        files: artifacts/macos-export-templates.tgz
         tag_name: ${{ github.ref_name }}
-        name: Godot ${{ github.ref_name }} Export Templates
+        name: Godot ${{ github.ref_name }} macOS Export Templates
         body: |
-          Export templates for Godot Engine ${{ github.ref_name }}
+          macOS export templates for Godot Engine ${{ github.ref_name }}
           
           Includes:
-          - macOS templates (Release and Debug)
-        #   - Windows 64-bit templates (Release and Debug)
+          - macOS x86_64 templates (Release and Debug)
+          - macOS ARM64 templates (Release and Debug)
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
