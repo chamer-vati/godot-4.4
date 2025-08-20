@@ -246,8 +246,9 @@ if not ec_valid:
         "or make sure that it contains exactly 64 hexadecimal characters."
     )
     Exit(255)
-gen_encrypt = env.CommandNoCache("script_encryption_key.gen.cpp", env.Value(gdkey), env.Run(encryption_key_builder))
-env.add_source_files(env.core_sources, gen_encrypt)
+# 修改
+#gen_encrypt = env.CommandNoCache("script_encryption_key.gen.cpp", env.Value(gdkey), env.Run(encryption_key_builder))
+#env.add_source_files(env.core_sources, gen_encrypt)
 
 
 # Certificates
