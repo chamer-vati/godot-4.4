@@ -3,7 +3,7 @@ name: Build Godot 4.4.1-stable Export Templates
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
-  build-macos:
+    build-macos:
     name: Build macOS Templates
     runs-on: macos-latest
     
@@ -23,14 +23,48 @@ jobs:
 
     - name: Build macOS templates
       run: |
-        scons platform=macos target=template_release vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
-        scons platform=macos target=template_debug vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
+        # 构建 x86_64 架构
+        scons platform=macos target=template_release arch=x86_64 vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
+        scons platform=macos target=template_debug arch=x86_64 vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
+        
+        # 构建 arm64 架构 (Apple Silicon)
+        scons platform=macos target=template_release arch=arm64 vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
+        scons platform=macos target=template_debug arch=arm64 vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
+
+    - name: Verify build artifacts
+      run: |
+        echo "Checking build artifacts..."
+        ls -la bin/
+        # 检查至少有一些模板文件存在
+        if ! ls bin/godot.macos.template_* 1> /dev/null 2>&1; then
+          echo "ERROR: No template files found!"
+          exit 1
+        fi
+        echo "Build artifacts verified."
 
     - name: Package macOS templates
       run: |
         mkdir -p bin/templates
-        cp bin/godot.macos.template_release bin/templates/macos_template_release
-        cp bin/godot.macos.template_debug bin/templates/macos_template_debug
+        
+        # 复制所有找到的模板文件
+        for file in bin/godot.macos.template_*; do
+          filename=$(basename "$file")
+          # 根据架构重命名文件
+          if [[ $filename == *".arm64" ]]; then
+            newname="${filename//.template_/.template_}" # 保持原样或根据需要重命名
+            cp "$file" "bin/templates/${newname}"
+          elif [[ $filename == *".x86_64" ]]; then
+            newname="${filename//.template_/.template_}" # 保持原样或根据需要重命名
+            cp "$file" "bin/templates/${newname}"
+          else
+            cp "$file" "bin/templates/${filename}"
+          fi
+        done
+        
+        # 列出打包前的文件以确保正确
+        echo "Files to be packaged:"
+        ls -la bin/templates/
+        
         tar -czf macos-export-templates.tgz bin/templates/
 
     - name: Upload macOS templates artifact
@@ -39,52 +73,52 @@ jobs:
         name: macos-export-templates
         path: macos-export-templates.tgz
 
-  build-windows:
-    name: Build Windows Templates
-    runs-on: windows-latest
+#   build-windows:
+#     name: Build Windows Templates
+#     runs-on: windows-latest
     
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        ref: 4.4.1-stable
+#     steps:
+#     - name: Checkout repository
+#       uses: actions/checkout@v4
+#       with:
+#         submodules: recursive
+#         ref: 4.4.1-stable
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
+#     - name: Setup Python
+#       uses: actions/setup-python@v4
+#       with:
+#         python-version: '3.9'
         
-    - name: Install SCons
-      run: |
-        pip install scons
+#     - name: Install SCons
+#       run: |
+#         pip install scons
 
-    - name: Setup MSVC environment
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
+#     - name: Setup MSVC environment
+#       uses: ilammy/msvc-dev-cmd@v1
+#       with:
+#         arch: x64
 
-    - name: Build Windows templates
-      run: |
-        scons platform=windows target=template_release bits=64 -j 4
-        scons platform=windows target=template_debug bits=64 -j 4
+#     - name: Build Windows templates
+#       run: |
+#         scons platform=windows target=template_release bits=64 -j 4
+#         scons platform=windows target=template_debug bits=64 -j 4
 
-    - name: Package Windows templates
-      run: |
-        New-Item -ItemType Directory -Force -Path bin/templates
-        Copy-Item bin/godot.windows.template_release.64.exe bin/templates/windows_64_release.exe
-        Copy-Item bin/godot.windows.template_debug.64.exe bin/templates/windows_64_debug.exe
-        Compress-Archive -Path bin/templates/* -DestinationPath windows-export-templates.zip
+#     - name: Package Windows templates
+#       run: |
+#         New-Item -ItemType Directory -Force -Path bin/templates
+#         Copy-Item bin/godot.windows.template_release.64.exe bin/templates/windows_64_release.exe
+#         Copy-Item bin/godot.windows.template_debug.64.exe bin/templates/windows_64_debug.exe
+#         Compress-Archive -Path bin/templates/* -DestinationPath windows-export-templates.zip
 
-    - name: Upload Windows templates artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: windows-export-templates
-        path: windows-export-templates.zip
+#     - name: Upload Windows templates artifact
+#       uses: actions/upload-artifact@v4
+#       with:
+#         name: windows-export-templates
+#         path: windows-export-templates.zip
 
   create-release:
     name: Create Release
-    needs: [build-macos, build-windows]
+    needs: [build-macos] #, build-windows]
     runs-on: ubuntu-latest
     if: success() && startsWith(github.ref, 'refs/tags/')
     
@@ -95,18 +129,18 @@ jobs:
         name: macos-export-templates
         path: artifacts/
 
-    - name: Download Windows templates
-      uses: actions/download-artifact@v4
-      with:
-        name: windows-export-templates
-        path: artifacts/
+    # - name: Download Windows templates
+    #   uses: actions/download-artifact@v4
+    #   with:
+    #     name: windows-export-templates
+    #     path: artifacts/
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
           artifacts/macos-export-templates.tgz
-          artifacts/windows-export-templates.zip
+        #   artifacts/windows-export-templates.zip
         tag_name: ${{ github.ref_name }}
         name: Godot ${{ github.ref_name }} Export Templates
         body: |
@@ -114,6 +148,6 @@ jobs:
           
           Includes:
           - macOS templates (Release and Debug)
-          - Windows 64-bit templates (Release and Debug)
+        #   - Windows 64-bit templates (Release and Debug)
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
