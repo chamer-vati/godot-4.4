@@ -2,55 +2,94 @@ name: Build Godot 4.4.1-stable Export Templates
 
 on: [push, pull_request, workflow_dispatch]
 
+# Global Settings
+env:
+  # Used for the cache key. Add version suffix to force clean build.
+  GODOT_BASE_BRANCH: 4.4
+  SCONSFLAGS: verbose=yes warnings=extra werror=yes module_text_server_fb_enabled=yes strict_checks=yes
+
 jobs:
-  build-macos-templates:
+  build-macos:
     runs-on: macos-latest
+    name: ${{ matrix.name }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # - name: Editor (target=editor, tests=yes)
+          #   cache-name: macos-editor
+          #   target: editor
+          #   tests: true
+          #   bin: ./bin/godot.macos.editor.universal
+          #   cache-limit: 1
+
+          - name: Template (target=template_release, tests=yes)
+            cache-name: macos-template
+            target: template_release
+            tests: true
+            sconsflags: debug_symbols=no
+            bin: ./bin/godot.macos.template_release.universal
+            cache-limit: 1
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Install Vulkan SDK with MoltenVK
-      run: |
-        # 运行 Godot 提供的脚本安装 Vulkan SDK
-        chmod +x misc/scripts/install_vulkan_sdk_macos.sh
-        ./misc/scripts/install_vulkan_sdk_macos.sh
-        
-        # 设置环境变量指向安装的 Vulkan SDK
-        VULKAN_SDK_PATH="$HOME/vulkan-sdk"
-        if [ -d "$VULKAN_SDK_PATH" ]; then
-          echo "VULKAN_SDK=$VULKAN_SDK_PATH/macOS" >> $GITHUB_ENV
-          echo "VK_ICD_FILENAMES=$VULKAN_SDK_PATH/macOS/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
-          echo "VK_LAYER_PATH=$VULKAN_SDK_PATH/macOS/share/vulkan/explicit_layer.d" >> $GITHUB_ENV
-          echo "Vulkan SDK installed successfully at $VULKAN_SDK_PATH"
-        else
-          echo "ERROR: Vulkan SDK installation failed!"
-          exit 1
-        fi
+      - name: Restore Godot build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: ${{ matrix.cache-name }}
+        continue-on-error: true
 
-    - name: Install dependencies
-      run: |
-        brew install scons pkgconfig
-        xcode-select --install || true
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
 
-    - name: Build macOS export templates (Universal Binary)
-      run: |
-        # 构建发布版模板
-        scons -j$(sysctl -n hw.logicalcpu) platform=osx target=template_release arch=universal
-        
-        # 构建调试版模板
-        scons -j$(sysctl -n hw.logicalcpu) platform=osx target=template_debug arch=universal
+      - name: Setup Vulkan SDK
+        run: |
+          sh misc/scripts/install_vulkan_sdk_macos.sh
 
-    - name: Package templates
-      run: |
-        mkdir -p artifacts
-        cp -rv bin/* artifacts/
-        ls -la artifacts/
+      - name: Compilation (x86_64)
+        uses: ./.github/actions/godot-build
+        with:
+          sconsflags: ${{ env.SCONSFLAGS }} arch=x86_64
+          platform: macos
+          target: ${{ matrix.target }}
+          tests: ${{ matrix.tests }}
+          scons-cache-limit: 0 # Only cap on second run to avoid purging unnecessarily
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: godot-macos-templates
-        path: artifacts/
+      - name: Compilation (arm64)
+        uses: ./.github/actions/godot-build
+        with:
+          sconsflags: ${{ env.SCONSFLAGS }} arch=arm64
+          platform: macos
+          target: ${{ matrix.target }}
+          tests: ${{ matrix.tests }}
+          scons-cache-limit: ${{ matrix.cache-limit }}
+
+      - name: Save Godot build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: ${{ matrix.cache-name }}
+        continue-on-error: true
+
+      - name: Prepare artifact
+        run: |
+          lipo -create ./bin/godot.macos.${{ matrix.target }}.x86_64 ./bin/godot.macos.${{ matrix.target }}.arm64 -output ./bin/godot.macos.${{ matrix.target }}.universal
+          rm ./bin/godot.macos.${{ matrix.target }}.x86_64 ./bin/godot.macos.${{ matrix.target }}.arm64
+          strip bin/godot.*
+          chmod +x bin/godot.*
+
+      - name: Upload artifact
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: ${{ matrix.cache-name }}
+
+      - name: Unit tests
+        if: matrix.tests
+        run: |
+          ${{ matrix.bin }} --version
+          ${{ matrix.bin }} --help
+          ${{ matrix.bin }} --test --force-colors
