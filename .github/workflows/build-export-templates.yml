@@ -4,59 +4,49 @@ on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build-macos-templates:
-    runs-on: macos-latest  # 使用 macOS 运行器
+    runs-on: macos-latest
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        submodules: recursive  # 重要：递归获取子模块，包括 MoltenVK
+        submodules: recursive
+
+    - name: Install Vulkan SDK with MoltenVK
+      run: |
+        # 运行 Godot 提供的脚本安装 Vulkan SDK
+        chmod +x misc/scripts/install_vulkan_sdk_macos.sh
+        ./misc/scripts/install_vulkan_sdk_macos.sh
+        
+        # 设置环境变量指向安装的 Vulkan SDK
+        VULKAN_SDK_PATH="$HOME/vulkan-sdk"
+        if [ -d "$VULKAN_SDK_PATH" ]; then
+          echo "VULKAN_SDK=$VULKAN_SDK_PATH/macOS" >> $GITHUB_ENV
+          echo "VK_ICD_FILENAMES=$VULKAN_SDK_PATH/macOS/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          echo "VK_LAYER_PATH=$VULKAN_SDK_PATH/macOS/share/vulkan/explicit_layer.d" >> $GITHUB_ENV
+          echo "Vulkan SDK installed successfully at $VULKAN_SDK_PATH"
+        else
+          echo "ERROR: Vulkan SDK installation failed!"
+          exit 1
+        fi
 
     - name: Install dependencies
       run: |
-        # 安装构建依赖
         brew install scons pkgconfig
-        # 安装 macOS 开发工具
         xcode-select --install || true
-
-    - name: Set up MoltenVK environment
-      run: |
-        # 设置 MoltenVK 相关环境变量
-        echo "MVK_PATH=$(pwd)/thirdparty/moltenvk" >> $GITHUB_ENV
-        echo "VULKAN_SDK=$(pwd)/thirdparty/macos/vulkan" >> $GITHUB_ENV
-        echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
-        
-        # 创建必要的目录结构
-        mkdir -p thirdparty/macos/vulkan
-        
-        # 检查 MoltenVK 是否存在
-        if [ -d "$MVK_PATH" ]; then
-          echo "MoltenVK found at: $MVK_PATH"
-          ls -la $MVK_PATH/
-        else
-          echo "ERROR: MoltenVK not found!"
-          exit 1
-        fi
 
     - name: Build macOS export templates (Universal Binary)
       run: |
         # 构建发布版模板
-        scons -j$(sysctl -n hw.logicalcpu) platform=osx target=template_release arch=universal \
-          use_volk=no vulkan_sdk_path="$VULKAN_SDK"
+        scons -j$(sysctl -n hw.logicalcpu) platform=osx target=template_release arch=universal
         
         # 构建调试版模板
-        scons -j$(sysctl -n hw.logicalcpu) platform=osx target=template_debug arch=universal \
-          use_volk=no vulkan_sdk_path="$VULKAN_SDK"
+        scons -j$(sysctl -n hw.logicalcpu) platform=osx target=template_debug arch=universal
 
     - name: Package templates
       run: |
-        # 创建输出目录
         mkdir -p artifacts
-        
-        # 复制模板文件到 artifacts 目录
         cp -rv bin/* artifacts/
-        
-        # 列出生成的文件
         ls -la artifacts/
 
     - name: Upload artifacts
