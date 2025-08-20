@@ -1,152 +1,66 @@
 name: Build Godot 4.4.1-stable Export Templates
 
 on: [push, pull_request, workflow_dispatch]
+
 jobs:
-  build-macos:
-    name: Build macOS Templates
-    runs-on: macos-latest
-    
+  build-macos-templates:
+    runs-on: macos-latest  # 使用 macOS 运行器
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        submodules: recursive
-        ref: 4.4.1-stable
+        submodules: recursive  # 重要：递归获取子模块，包括 MoltenVK
 
-    - name: Install macOS dependencies
+    - name: Install dependencies
       run: |
-        brew update
-        brew install scons pkg-config yasm molten-vk
-        echo "VULKAN_SDK=$(brew --prefix molten-vk)" >> $GITHUB_ENV
-        echo "PATH=$VULKAN_SDK/bin:$PATH" >> $GITHUB_ENV
+        # 安装构建依赖
+        brew install scons pkgconfig
+        # 安装 macOS 开发工具
+        xcode-select --install || true
 
-    - name: Build macOS templates
+    - name: Set up MoltenVK environment
       run: |
-        # 构建 x86_64 架构
-        scons platform=macos target=template_release arch=x86_64 vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
-        scons platform=macos target=template_debug arch=x86_64 vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
+        # 设置 MoltenVK 相关环境变量
+        echo "MVK_PATH=$(pwd)/thirdparty/moltenvk" >> $GITHUB_ENV
+        echo "VULKAN_SDK=$(pwd)/thirdparty/macos/vulkan" >> $GITHUB_ENV
+        echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
         
-        # 构建 arm64 架构 (Apple Silicon)
-        scons platform=macos target=template_release arch=arm64 vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
-        scons platform=macos target=template_debug arch=arm64 vulkan_sdk="$VULKAN_SDK" disable_metal=yes -j4
-
-    - name: Verify build artifacts
-      run: |
-        echo "Checking build artifacts..."
-        ls -la bin/
-        # 检查至少有一些模板文件存在
-        if ! ls bin/godot.macos.template_* 1> /dev/null 2>&1; then
-          echo "ERROR: No template files found!"
+        # 创建必要的目录结构
+        mkdir -p thirdparty/macos/vulkan
+        
+        # 检查 MoltenVK 是否存在
+        if [ -d "$MVK_PATH" ]; then
+          echo "MoltenVK found at: $MVK_PATH"
+          ls -la $MVK_PATH/
+        else
+          echo "ERROR: MoltenVK not found!"
           exit 1
         fi
-        echo "Build artifacts verified."
 
-    - name: Package macOS templates
+    - name: Build macOS export templates (Universal Binary)
       run: |
-        mkdir -p bin/templates
+        # 构建发布版模板
+        scons -j$(sysctl -n hw.logicalcpu) platform=osx target=template_release arch=universal \
+          use_volk=no vulkan_sdk_path="$VULKAN_SDK"
         
-        # 复制所有找到的模板文件
-        for file in bin/godot.macos.template_*; do
-          filename=$(basename "$file")
-          # 根据架构重命名文件
-          if [[ $filename == *".arm64" ]]; then
-            newname="${filename//.template_/.template_}" # 保持原样或根据需要重命名
-            cp "$file" "bin/templates/${newname}"
-          elif [[ $filename == *".x86_64" ]]; then
-            newname="${filename//.template_/.template_}" # 保持原样或根据需要重命名
-            cp "$file" "bin/templates/${newname}"
-          else
-            cp "$file" "bin/templates/${filename}"
-          fi
-        done
-        
-        # 列出打包前的文件以确保正确
-        echo "Files to be packaged:"
-        ls -la bin/templates/
-        
-        tar -czf macos-export-templates.tgz bin/templates/
+        # 构建调试版模板
+        scons -j$(sysctl -n hw.logicalcpu) platform=osx target=template_debug arch=universal \
+          use_volk=no vulkan_sdk_path="$VULKAN_SDK"
 
-    - name: Upload macOS templates artifact
+    - name: Package templates
+      run: |
+        # 创建输出目录
+        mkdir -p artifacts
+        
+        # 复制模板文件到 artifacts 目录
+        cp -rv bin/* artifacts/
+        
+        # 列出生成的文件
+        ls -la artifacts/
+
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: macos-export-templates
-        path: macos-export-templates.tgz
-
-  build-windows:
-    name: Build Windows Templates
-    runs-on: windows-latest
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        ref: 4.4.1-stable
-
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-        
-    - name: Install SCons
-      run: |
-        pip install scons
-
-    - name: Setup MSVC environment
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
-
-    - name: Build Windows templates
-      run: |
-        scons platform=windows target=template_release bits=64 -j 4
-        scons platform=windows target=template_debug bits=64 -j 4
-
-    - name: Package Windows templates
-      run: |
-        New-Item -ItemType Directory -Force -Path bin/templates
-        Copy-Item bin/godot.windows.template_release.64.exe bin/templates/windows_64_release.exe
-        Copy-Item bin/godot.windows.template_debug.64.exe bin/templates/windows_64_debug.exe
-        Compress-Archive -Path bin/templates/* -DestinationPath windows-export-templates.zip
-
-    - name: Upload Windows templates artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: windows-export-templates
-        path: windows-export-templates.zip
-
-  create-release:
-    name: Create Release
-    needs: [build-macos, build-windows]
-    runs-on: ubuntu-latest
-    if: success() && startsWith(github.ref, 'refs/tags/')
-    
-    steps:
-    - name: Download macOS templates
-      uses: actions/download-artifact@v4
-      with:
-        name: macos-export-templates
+        name: godot-macos-templates
         path: artifacts/
-
-    - name: Download Windows templates
-      uses: actions/download-artifact@v4
-      with:
-        name: windows-export-templates
-        path: artifacts/
-
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          artifacts/macos-export-templates.tgz
-          artifacts/windows-export-templates.zip
-        tag_name: ${{ github.ref_name }}
-        name: Godot ${{ github.ref_name }} Export Templates
-        body: |
-          Export templates for Godot Engine ${{ github.ref_name }}
-          
-          Includes:
-          - macOS templates (Release and Debug)
-          - Windows 64-bit templates (Release and Debug)
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
