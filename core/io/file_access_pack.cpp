@@ -33,7 +33,9 @@
 #include "core/io/file_access_encrypted.h"
 #include "core/object/script_language.h"
 #include "core/os/os.h"
+#include "core/script_encryption_key.gen.h"
 #include "core/version.h"
+#include "core/meow_guard.h"
 
 Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset) {
 	for (int i = 0; i < sources.size(); i++) {
@@ -286,16 +288,20 @@ bool PackedSourcePCK::try_open_pack(const String &p_path, bool p_replace_files, 
 	if (enc_directory) {
 		Ref<FileAccessEncrypted> fae;
 		fae.instantiate();
-		ERR_FAIL_COND_V_MSG(fae.is_null(), false, "Can't open encrypted pack directory.");
+		//ERR_FAIL_COND_V_MSG(fae.is_null(), false, "Can't open encrypted pack directory.");
 
 		Vector<uint8_t> key;
 		key.resize(32);
+		MeowGuard meow_guard(script_encryption_key);
+		meow_guard.init_key();
+		meow_guard.check_debugger();
 		for (int i = 0; i < key.size(); i++) {
 			key.write[i] = script_encryption_key[i];
 		}
+		meow_guard.reset_key();
 
 		Error err = fae->open_and_parse(f, key, FileAccessEncrypted::MODE_READ, false);
-		ERR_FAIL_COND_V_MSG(err, false, "Can't open encrypted pack directory.");
+		//ERR_FAIL_COND_V_MSG(err, false, "Can't open encrypted pack directory.");
 		f = fae;
 	}
 
@@ -476,16 +482,19 @@ FileAccessPack::FileAccessPack(const String &p_path, const PackedData::PackedFil
 	if (pf.encrypted) {
 		Ref<FileAccessEncrypted> fae;
 		fae.instantiate();
-		ERR_FAIL_COND_MSG(fae.is_null(), vformat("Can't open encrypted pack-referenced file '%s'.", String(pf.pack)));
+		//ERR_FAIL_COND_MSG(fae.is_null(), vformat("Can't open encrypted pack-referenced file '%s'.", String(pf.pack)));
 
 		Vector<uint8_t> key;
 		key.resize(32);
+		MeowGuard meow_guard(script_encryption_key);
+		meow_guard.init_key();
+		meow_guard.check_debugger();
 		for (int i = 0; i < key.size(); i++) {
 			key.write[i] = script_encryption_key[i];
 		}
-
+		meow_guard.reset_key();
 		Error err = fae->open_and_parse(f, key, FileAccessEncrypted::MODE_READ, false);
-		ERR_FAIL_COND_MSG(err, vformat("Can't open encrypted pack-referenced file '%s'.", String(pf.pack)));
+		//ERR_FAIL_COND_MSG(err, vformat("Can't open encrypted pack-referenced file '%s'.", String(pf.pack)));
 		f = fae;
 		off = 0;
 	}
