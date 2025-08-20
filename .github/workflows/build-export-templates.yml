@@ -24,7 +24,7 @@ jobs:
           #   bin: ./bin/godot.macos.editor.universal
           #   cache-limit: 1
 
-          - name: Template (target=template_release, tests=yes)
+          - name: Template (target=template_release, tests=yes,use_volk=yes)
             cache-name: macos-template
             target: template_release
             tests: true
