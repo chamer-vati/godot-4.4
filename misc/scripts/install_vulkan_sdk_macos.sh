@@ -26,16 +26,28 @@ fi
 
 # Download and install the Vulkan SDK.
 curl -L "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.zip" -o /tmp/vulkan-sdk.zip
-unzip /tmp/vulkan-sdk.zip -d /tmp
+# unzip /tmp/vulkan-sdk.zip -d /tmp
 
-if [ -d "/tmp/InstallVulkan-$new_ver_full.app" ]; then
-	/tmp/InstallVulkan-$new_ver_full.app/Contents/MacOS/InstallVulkan-$new_ver_full  --accept-licenses --default-answer --confirm-command install
-	rm -rf /tmp/InstallVulkan-$new_ver_full.app
-elif [ -d "/tmp/InstallVulkan.app" ]; then
-	/tmp/InstallVulkan.app/Contents/MacOS/InstallVulkan --accept-licenses --default-answer --confirm-command install
-	rm -rf /tmp/InstallVulkan.app
-fi
+# if [ -d "/tmp/InstallVulkan-$new_ver_full.app" ]; then
+# 	/tmp/InstallVulkan-$new_ver_full.app/Contents/MacOS/InstallVulkan-$new_ver_full  --accept-licenses --default-answer --confirm-command install
+# 	rm -rf /tmp/InstallVulkan-$new_ver_full.app
+# elif [ -d "/tmp/InstallVulkan.app" ]; then
+# 	/tmp/InstallVulkan.app/Contents/MacOS/InstallVulkan --accept-licenses --default-answer --confirm-command install
+# 	rm -rf /tmp/InstallVulkan.app
+# fi
 
+# rm -f /tmp/vulkan-sdk.zip
+
+# echo 'Vulkan SDK installed successfully! You can now build Godot by running "scons".'
+
+# Create target directory
+mkdir -p "$HOME/VulkanSDK/$new_ver_full"
+
+# Extract directly to target directory
+unzip -q /tmp/vulkan-sdk.zip -d "$HOME/VulkanSDK/$new_ver_full"
+
+# Clean up
 rm -f /tmp/vulkan-sdk.zip
 
+echo "Vulkan SDK extracted to $HOME/VulkanSDK/$new_ver_full"
 echo 'Vulkan SDK installed successfully! You can now build Godot by running "scons".'
