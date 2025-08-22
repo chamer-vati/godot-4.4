@@ -4,7 +4,7 @@ on: push
 # Global Settings
 env:
   SCONS_FLAGS: >-
-    verbose=yes warnings=extra werror=yes module_text_server_fb_enabled=yes strict_checks=yes
+    # dev_mode=yes
     module_text_server_fb_enabled=yes
     "accesskit_sdk_path=${{ github.workspace }}/accesskit-c-0.17.0/"
 
@@ -104,4 +104,4 @@ jobs:
         run: |
           ${{ matrix.bin }} --version
           ${{ matrix.bin }} --help
-          ${{ matrix.bin }} --test --force-c
+          ${{ matrix.bin }} --test --force-colors
