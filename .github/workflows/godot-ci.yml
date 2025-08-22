@@ -5,6 +5,8 @@ on: push
 env:
   SCONS_FLAGS: >-
     # dev_mode=yes
+    # use_vulkan=false
+    vulkan_sdk_path=/Users/runner/vulkanSDK/vulkansdk-macos-1.4.321.0
     module_text_server_fb_enabled=yes
     "accesskit_sdk_path=${{ github.workspace }}/accesskit-c-0.17.0/"
 
@@ -17,10 +19,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Editor (target=editor)
-            cache-name: macos-editor
-            target: editor
-            bin: ./bin/godot.macos.editor.universal
+          # - name: Editor (target=editor)
+          #   cache-name: macos-editor
+          #   target: editor
+          #   bin: ./bin/godot.macos.editor.universal
 
           - name: Template (target=template_release)
             cache-name: macos-template
